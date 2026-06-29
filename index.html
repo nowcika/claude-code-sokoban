@@ -21,7 +21,27 @@
   .layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start;}
   @media (max-width:980px){.layout{grid-template-columns:1fr}}
 
-  .stage{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;position:relative;}
+  canvas#game{cursor:pointer;}
+  /* 정답 배치 축하 토스트 */
+  .toast{position:absolute;left:50%;top:24px;transform:translateX(-50%);z-index:25;pointer-events:none;
+    background:rgba(18,24,36,.96);border:1px solid var(--ok);color:var(--text);
+    padding:9px 16px;border-radius:11px;font-size:13.5px;font-weight:600;opacity:0;
+    display:flex;gap:8px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.45);max-width:90%;}
+  .toast.show{animation:toastPop 1.9s cubic-bezier(.2,.8,.2,1) forwards;}
+  @keyframes toastPop{
+    0%{opacity:0;transform:translate(-50%,10px) scale(.92);}
+    12%{opacity:1;transform:translate(-50%,0) scale(1);}
+    78%{opacity:1;transform:translate(-50%,0) scale(1);}
+    100%{opacity:0;transform:translate(-50%,-12px) scale(1);}}
+  /* 정보 모달 본문 */
+  .doc p{margin:0 0 12px;font-size:13.5px;color:#cdd6e4;line-height:1.65;}
+  .doc .lbl{display:block;color:var(--accent);font-weight:700;font-size:12px;margin-bottom:3px;letter-spacing:.2px;}
+  .doc pre{background:#0d1117;border:1px solid var(--line);border-radius:9px;padding:10px 12px;overflow:auto;
+    margin:4px 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.55;color:#c7d2e0;white-space:pre;}
+  .doc .where{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .doc .where code{background:var(--panel2);border:1px solid var(--line);padding:2px 8px;border-radius:6px;
+    font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--text);}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
   .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-variant-numeric:tabular-nums;}
   .stat b{color:var(--accent2);font-size:18px;}
@@ -123,11 +143,13 @@
         <button id="helpBtn">？ 도움말</button>
       </div>
       <canvas id="game" width="900" height="396"></canvas>
+      <div class="toast" id="toast"></div>
       <div class="hint">
         이동: <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 또는 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
         · 되돌리기 <kbd>U</kbd> · 리셋 <kbd>R</kbd> · 새 퍼즐 <kbd>N</kbd><br>
         짐은 <b>밀 수만</b> 있고 당길 수 없어요. 짐 뒤에 또 다른 짐이나 벽이 있으면 밀리지 않습니다. 막히면 <kbd>U</kbd>로 되돌리세요.<br>
-        🚧 <b>고정 장애물</b>은 밀 수 없어 돌아가야 하고, 📦 <b>잡동사니</b>는 밀 수 있는 가짜 짐이라 길을 막으면 치워야 합니다(목표 아님). 위쪽 <b>🚧 / 📦 선택</b>으로 난이도를 올려보세요.
+        🚧 <b>고정 장애물</b>은 밀 수 없어 돌아가야 하고, 📦 <b>잡동사니</b>는 밀 수 있는 가짜 짐이라 길을 막으면 치워야 합니다(목표 아님). 위쪽 <b>🚧 / 📦 선택</b>으로 난이도를 올려보세요.<br>
+        🖱️ <b>짐을 클릭</b>하면 그게 무엇인지, 어느 파일에 놓아야 하는지, 실제 Claude Code에서 어떻게 쓰는지 설명을 볼 수 있어요.
       </div>
     </div>
 
@@ -172,6 +194,15 @@
       <button class="primary" id="winNext">다음 레벨 ▶</button>
       <button id="winNew">새 퍼즐</button>
     </div>
+  </div>
+</div>
+
+<!-- ITEM INFO modal -->
+<div class="overlay" id="infoOverlay">
+  <div class="modal">
+    <h2 id="infoTitle"></h2>
+    <div class="doc" id="infoBody"></div>
+    <div class="row"><button class="primary" id="infoClose">닫기</button></div>
   </div>
 </div>
 
@@ -323,6 +354,81 @@ const LEVELS = [
 let levelIndex=0, ROOMS=[], ITEMS=[];
 function rebuildItems(){ ITEMS=[];
   ROOMS.forEach((r,ri)=>r.items.forEach(it=>ITEMS.push({...it, roomIndex:ri, color:r.color, file:r.file}))); }
+
+// ---- 항목별 교육 설명(짐 클릭 시 표시): 무엇 / 실제 활용 / 예시 ----
+const ITEM_DOCS = {
+  hook:{ what:"특정 이벤트 시점(도구 실행 전·후, 세션 종료 등)에 Claude Code가 자동으로 실행하는 셸 명령이에요.",
+    real:"파일 수정 후 자동 포맷팅, 커밋 전 린트 검사, 위험한 명령 차단 같은 자동화를 만들 때 씁니다. PreToolUse·PostToolUse·Stop 등 이벤트에 매칭해요.",
+    example:'"hooks": {\n  "PostToolUse": [{ "matcher": "Edit",\n    "hooks": [{ "type": "command", "command": "prettier -w $FILE" }] }]\n}' },
+  perm:{ what:"Claude가 어떤 도구·명령을 허용/거부/확인할지 정하는 권한 규칙이에요.",
+    real:"자주 쓰는 안전한 명령은 자동 허용해 매번 묻지 않게 하고, 위험한 명령은 막아 작업을 빠르고 안전하게 만듭니다.",
+    example:'"permissions": {\n  "allow": ["Bash(git*)", "Bash(npm run *)"],\n  "deny": ["Read(./.env)"]\n}' },
+  env:{ what:"세션 전체에 주입되는 환경변수예요.",
+    real:"API 베이스 URL, 프록시, 기능 플래그 등을 세션 내내 일관되게 적용할 때 씁니다.",
+    example:'"env": { "MY_API_BASE": "https://api.example.com", "DISABLE_TELEMETRY": "1" }' },
+  model:{ what:"사용할 기본 모델을 지정해요.",
+    real:"어려운 작업엔 강력한 모델, 가벼운 작업엔 빠른 모델처럼 작업 성격에 맞춰 고릅니다.",
+    example:'"model": "claude-opus-4-8"   // 또는 sonnet/haiku' },
+  mem:{ what:"항상 컨텍스트에 자동 로드되는 프로젝트 메모리/지침이에요.",
+    real:"빌드·테스트 명령, 디렉토리 구조, 코드 규칙, 하지 말 것 등을 적어두면 매 대화마다 반영돼 설명을 반복하지 않아도 됩니다.",
+    example:'## 명령\n- 테스트: npm test\n- 빌드: npm run build\n## 규칙\n- 스페이스 2칸 들여쓰기' },
+  conv:{ what:"코드 스타일·컨벤션 안내예요(프로젝트 메모리의 일부).",
+    real:'"함수형 우선", "네이밍은 camelCase" 같은 규칙을 명시하면 생성되는 코드가 팀 스타일과 일관됩니다.' },
+  mcp:{ what:"외부 도구·데이터 소스를 붙이는 MCP(Model Context Protocol) 서버 정의예요.",
+    real:"DB, GitHub, 브라우저(Playwright), 사내 API 등을 Claude의 도구로 연결합니다. 프로젝트에 두면 팀과 공유돼요.",
+    example:'{ "mcpServers": {\n  "github": { "command": "npx",\n    "args": ["-y", "@modelcontextprotocol/server-github"] }\n}}' },
+  cmd:{ what:"/이름 으로 실행하는 재사용 가능한 슬래시 명령(프롬프트)이에요.",
+    real:"코드 리뷰, 릴리즈 노트 작성처럼 자주 쓰는 작업을 명령 한 줄로 만듭니다. $ARGUMENTS 로 인자도 받아요.",
+    example:'파일: .claude/commands/review.md\n사용: /review src/app.js' },
+  agent:{ what:"특정 작업을 전담하는 서브에이전트예요(도구·모델을 따로 지정 가능).",
+    real:"코드 리뷰어·테스트 작성기처럼 역할을 분리하면 메인 대화의 컨텍스트를 아끼고 여러 작업을 병렬로 돌릴 수 있어요.",
+    example:'파일: .claude/agents/reviewer.md\n(frontmatter에 tools, model 지정)' },
+  skill:{ what:"필요할 때 자동으로 불려오는 전문 능력 묶음이에요.",
+    real:"PDF 처리, 사내 배포 절차 같은 전문 작업을 미리 정의해두면, 관련 작업에서 description을 보고 자동으로 트리거됩니다.",
+    example:'파일: .claude/skills/pdf/SKILL.md' },
+  local:{ what:"팀과 공유하지 않는 개인용 로컬 설정이에요.",
+    real:"내 개인 권한 예외나 실험적 설정을 팀에 영향 없이 둘 때 씁니다. 보통 .gitignore 대상이에요.",
+    example:'.claude/settings.local.json (커밋 안 함)' },
+  ign:{ what:"버전관리(git)에서 제외할 파일 패턴이에요.",
+    real:"settings.local.json, .env, node_modules 등을 커밋에서 제외해 비밀과 잡파일이 올라가지 않게 보호합니다.",
+    example:'.env\n.claude/settings.local.json\nnode_modules/' },
+  script:{ what:"settings.json의 훅이 호출하는 실제 실행 파일이에요.",
+    real:"복잡한 훅 로직을 셸/파이썬 스크립트로 분리해두면 재사용·관리가 쉬워집니다.",
+    example:'.claude/hooks/format.sh 를 훅의 command 로 호출' },
+  style:{ what:"응답의 형식·말투를 바꾸는 출력 스타일이에요.",
+    real:"간결 모드, 설명 위주 모드처럼 답변 톤을 상황에 맞게 바꿀 때 씁니다.",
+    example:'.claude/output-styles/concise.md' },
+  plugin:{ what:"명령·에이전트·스킬·MCP를 한데 묶은 패키지예요(마켓플레이스로 배포).",
+    real:"팀 표준 도구 묶음을 한 번에 설치·공유할 수 있어 온보딩이 쉬워집니다.",
+    example:'.claude/plugins/ 에 설치, 마켓플레이스에서 배포' },
+  // ----- L4: 스코프 변형 -----
+  gmodel:{ what:"기본 모델을 전역(사용자) 설정에 두는 경우예요.",
+    real:"모든 프로젝트에서 같은 기본 모델을 쓰고 싶을 때 ~/.claude/settings.json 에 둡니다.",
+    example:'~/.claude/settings.json → "model": "claude-opus-4-8"' },
+  genv:{ what:"환경변수를 전역(사용자) 설정에 두는 경우예요.",
+    real:"어느 프로젝트에서나 필요한 변수는 전역에 두면 매번 설정하지 않아도 됩니다.",
+    example:'~/.claude/settings.json → "env": { ... }' },
+  phook:{ what:"훅을 프로젝트 공유 설정에 두는 경우예요.",
+    real:"팀 전체가 동일한 자동화(포맷·린트)를 쓰도록 .claude/settings.json 에 두고 커밋합니다." },
+  pperm:{ what:"권한 규칙을 프로젝트 공유 설정에 두는 경우예요.",
+    real:"이 저장소에서 팀 공통으로 허용/거부할 명령을 .claude/settings.json 에 둡니다." },
+  lperm:{ what:"권한 예외를 개인 로컬 설정에 두는 경우예요.",
+    real:"나만 허용하고 싶은 명령은 .claude/settings.local.json 에 두어 팀에 영향을 주지 않습니다." },
+  lkey:{ what:"개인 API 키/비밀처럼 절대 공유하면 안 되는 값이에요.",
+    real:"개인 로컬 설정(gitignore 대상)에만 두어 커밋·공유를 막습니다. 공유 설정엔 절대 넣지 마세요!",
+    example:'.claude/settings.local.json (gitignore 필수)' },
+  mpolicy:{ what:"조직이 강제하는 관리자 정책이에요(우선순위 최상위).",
+    real:"보안·컴플라이언스를 위해 조직이 정한 설정으로, 사용자가 덮어쓸 수 없습니다.",
+    example:'managed-settings.json (조직 배포, 최우선)' },
+  gmem:{ what:"모든 프로젝트에 공통 적용할 개인 지침(전역 메모리)이에요.",
+    real:"내 작업 습관·선호를 ~/.claude/CLAUDE.md 에 두면 어느 프로젝트에서나 반영됩니다." },
+  pmem:{ what:"이 프로젝트에만 적용되는 규칙(프로젝트 메모리)이에요.",
+    real:"프로젝트 고유 규칙·맥락은 ./CLAUDE.md 에 두고 팀과 공유(커밋)합니다." },
+  gcmd:{ what:"어디서나 쓰는 전역 슬래시 명령이에요.",
+    real:"개인적으로 자주 쓰는 명령은 ~/.claude/commands/ 에 두면 모든 프로젝트에서 /명령 으로 호출됩니다." },
+  pcmd:{ what:"이 저장소 전용 슬래시 명령이에요.",
+    real:"프로젝트에 특화된 명령은 .claude/commands/ 에 두고 팀과 공유합니다." },
+};
 
 // ---- 그리드 구성(레벨에 따라 가변) ----
 const IW=5, IH=4;                        // 방 내부 크기
@@ -490,6 +596,7 @@ function tryMove(dx,dy){
     b.x=bx; b.y=by;
     player.x=nx; player.y=ny;
     moves++;
+    if(boxOnRightTarget(b)) celebratePlacement(b); // 정확한 위치에 놓으면 축하!
   }else{
     history.push(snapshot());
     player.x=nx; player.y=ny;
@@ -742,6 +849,83 @@ function newGame(){
 function show(id){document.getElementById(id).classList.add('show');}
 function hide(id){document.getElementById(id).classList.remove('show');}
 
+// ---- 짐 클릭 → 교육 설명 ----
+function openItemInfo(box){
+  const meta=ITEMS.find(i=>i.id===box.id); if(!meta) return;
+  const room=ROOMS[meta.roomIndex], sc=scopeOf(room), doc=ITEM_DOCS[box.id]||{};
+  document.getElementById('infoTitle').textContent=`${meta.emoji} ${meta.name}`;
+  let html='';
+  html+=`<p><span class="lbl">📂 어디에 놓아야 하나요?</span>
+    <span class="where"><code>${escapeHtml(room.file)}</code>
+    <span class="scope" style="color:${sc.color};border-color:${hexA(sc.color,0.5)}">${sc.emoji} ${sc.label}</span></span></p>`;
+  html+=`<p><span class="lbl">💡 무엇인가요?</span>${escapeHtml(doc.what||meta.info||'')}</p>`;
+  if(doc.real) html+=`<p><span class="lbl">🛠️ 실제 Claude Code에서는</span>${escapeHtml(doc.real)}</p>`;
+  if(doc.example) html+=`<p><span class="lbl">📝 예시</span><pre>${escapeHtml(doc.example)}</pre></p>`;
+  const done=boxOnRightTarget(box);
+  html+=`<p style="color:${done?'var(--ok)':'var(--muted)'};font-size:12.5px">${done
+    ? '✓ 이미 알맞은 자리에 정리됐어요!'
+    : `이 짐을 <b>${escapeHtml(room.file)}</b> 방의 점선 목표 칸으로 밀어 넣으세요.`}</p>`;
+  document.getElementById('infoBody').innerHTML=html;
+  show('infoOverlay');
+}
+function showSimpleInfo(title, bodyHtml){
+  document.getElementById('infoTitle').textContent=title;
+  document.getElementById('infoBody').innerHTML=`<p>${bodyHtml}</p>`;
+  show('infoOverlay');
+}
+
+// ---- 컨페티(정답 배치 축하) ----
+let particles=[], pRAF=0, pLast=0;
+function burst(cx,cy,colors){
+  for(let i=0;i<26;i++){
+    const a=Math.random()*Math.PI*2, sp=60+Math.random()*160;
+    particles.push({x:cx,y:cy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-90,
+      life:0.9+Math.random()*0.5, sz:2+Math.random()*3,
+      color:colors[(Math.random()*colors.length)|0]});
+  }
+}
+function pStep(ts){
+  const dt=Math.min(0.05,(ts-pLast)/1000||0); pLast=ts;
+  draw();
+  for(const p of particles){ p.vy+=520*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
+  particles=particles.filter(p=>p.life>0);
+  particles.forEach(p=>{ ctx.globalAlpha=Math.max(0,Math.min(1,p.life*1.4));
+    ctx.fillStyle=p.color; ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz); });
+  ctx.globalAlpha=1;
+  if(particles.length){ pRAF=requestAnimationFrame(pStep); } else { pRAF=0; draw(); }
+}
+function startParticles(){ if(!pRAF){ pLast=performance.now(); pRAF=requestAnimationFrame(pStep); } }
+function showToast(html){
+  const t=document.getElementById('toast'); t.innerHTML=html;
+  t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
+}
+const PRAISE=['잘했어요!','정확해요!','완벽해요!','좋아요!','멋져요!'];
+function celebratePlacement(b){
+  const meta=ITEMS.find(i=>i.id===b.id); if(!meta) return;
+  const cx=(b.x+0.5)*CELL, cy=(b.y+0.5)*CELL;
+  burst(cx,cy,['#3fb950','#7aa2f7','#e0af68','#f7768e',meta.color,'#ffffff']);
+  startParticles();
+  const praise=PRAISE[(Math.random()*PRAISE.length)|0];
+  showToast(`<span style="font-size:18px">${meta.emoji}</span> <span>✓ ${praise} <b>${meta.name}</b> → <code style="font-family:ui-monospace,monospace;font-size:12px">${escapeHtml(ROOMS[meta.roomIndex].file)}</code> 정리 완료</span>`);
+}
+
+// ---- 캔버스 클릭: 짐/장애물 설명 ----
+function onCanvasClick(e){
+  if(!grid) return;
+  const rect=canvas.getBoundingClientRect();
+  const cx=Math.floor((e.clientX-rect.left)*(canvas.width/rect.width)/CELL);
+  const cy=Math.floor((e.clientY-rect.top)*(canvas.height/rect.height)/CELL);
+  const b=boxAt(cx,cy);
+  if(b){
+    if(b.decoy) showSimpleInfo('📦 잡동사니(밀 수 있는 가짜 짐)',
+      '목표가 <b>없는</b> 가짜 짐이에요. 정리 대상이 아니지만 길을 막을 수 있으니 <b>밀어서 치워</b> 길을 내세요. 실제 프로젝트의 임시 파일·캐시처럼 작업을 방해하는 잡동사니라고 생각하면 돼요.');
+    else openItemInfo(b);
+    return;
+  }
+  if(isObstacle(cx,cy)) showSimpleInfo('🚧 고정 장애물(밀 수 없음)',
+    '밀 수 없는 고정 블록이라 <b>돌아서</b> 가야 해요. 길을 막는 제약 조건이라고 생각하고 경로를 새로 찾아보세요.');
+}
+
 // ---- 이벤트 ----
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
@@ -763,6 +947,9 @@ document.getElementById('level').onchange=(e)=>{setLevel(parseInt(e.target.value
 document.getElementById('rankBtn').onclick=()=>{renderRanking();};
 document.getElementById('helpBtn').onclick=()=>show('helpOverlay');
 document.getElementById('helpClose').onclick=()=>hide('helpOverlay');
+document.getElementById('infoClose').onclick=()=>hide('infoOverlay');
+document.getElementById('infoOverlay').addEventListener('click',e=>{ if(e.target.id==='infoOverlay') hide('infoOverlay'); });
+canvas.addEventListener('click', onCanvasClick);
 document.getElementById('saveScore').onclick=doSaveScore;
 document.getElementById('winNew').onclick=()=>{hide('winOverlay');newGame();};
 document.getElementById('winNext').onclick=()=>{hide('winOverlay'); setLevel(levelIndex+1); newGame();};
