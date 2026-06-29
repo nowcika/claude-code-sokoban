@@ -105,10 +105,15 @@
           <option value="normal" selected>보통</option>
           <option value="hard">어려움</option>
         </select>
-        <select id="obstacles" title="이동을 막는 고정 장애물(🚧)">
+        <select id="obstacles" title="이동을 막는 고정 장애물(🚧, 밀 수 없음)">
           <option value="none" selected>🚧 없음</option>
           <option value="few">🚧 조금</option>
           <option value="many">🚧 많이</option>
+        </select>
+        <select id="decoys" title="밀 수 있는 잡동사니(📦, 치워야 함)">
+          <option value="none" selected>📦 없음</option>
+          <option value="few">📦 조금</option>
+          <option value="many">📦 많이</option>
         </select>
         <div class="spacer"></div>
         <button id="undoBtn" title="되돌리기 (U)">↶ 되돌리기</button>
@@ -122,7 +127,7 @@
         이동: <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 또는 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
         · 되돌리기 <kbd>U</kbd> · 리셋 <kbd>R</kbd> · 새 퍼즐 <kbd>N</kbd><br>
         짐은 <b>밀 수만</b> 있고 당길 수 없어요. 짐 뒤에 또 다른 짐이나 벽이 있으면 밀리지 않습니다. 막히면 <kbd>U</kbd>로 되돌리세요.<br>
-        🚧 <b>장애물</b>은 밀 수 없는 고정 블록이라 길을 막습니다. 우측 상단 <b>🚧 선택</b>으로 양을 조절해 난이도를 올릴 수 있어요(돌아서 가야 함).
+        🚧 <b>고정 장애물</b>은 밀 수 없어 돌아가야 하고, 📦 <b>잡동사니</b>는 밀 수 있는 가짜 짐이라 길을 막으면 치워야 합니다(목표 아님). 위쪽 <b>🚧 / 📦 선택</b>으로 난이도를 올려보세요.
       </div>
     </div>
 
@@ -371,6 +376,11 @@ function obstacleCount(){
   const n=ROOMS.length;
   return {none:0, few:Math.ceil(n*0.8), many:Math.ceil(n*1.6)}[document.getElementById('obstacles').value] || 0;
 }
+// 밀 수 있는 잡동사니 수(밀어서 치워야 함 → 더 까다로우므로 적게)
+function decoyCount(){
+  const n=ROOMS.length;
+  return {none:0, few:Math.ceil(n*0.5), many:Math.ceil(n*1.0)}[document.getElementById('decoys').value] || 0;
+}
 function placeObstacles(count){
   obstacles=[]; obstacleSet=new Set();
   if(!count) return;
@@ -400,16 +410,30 @@ function buildTargets(){
 
 // ---- 역생성: 완성 상태(짐=목표)에서 거꾸로 끌어내 흩뿌림 ----
 function generate(steps){
-  // 짐을 목표 위치에 둠
+  let rng = mulberry32(0x9e3779b1 ^ steps ^ (Date.now()&0xffff));
+  // 진짜 짐을 목표 위치에 둠
   boxes = targets.map(t=>({x:t.x, y:t.y, id:t.itemId, color:t.color, emoji:t.emoji}));
+  // 밀 수 있는 잡동사니(목표 없는 가짜 짐) 추가 — 함께 흩뿌려 풀이 가능성 유지
+  const nDecoy = decoyCount();
+  if(nDecoy){
+    const taken=new Set(boxes.map(b=>key(b.x,b.y)));
+    const cands=[];
+    for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+      const k=key(x,y);
+      if(isWalkable(x,y) && !taken.has(k) && !doorCells.has(k)) cands.push({x,y});
+    }
+    for(let i=cands.length-1;i>0;i--){const j=(rng()*(i+1))|0; const t=cands[i];cands[i]=cands[j];cands[j]=t;}
+    for(let i=0;i<Math.min(nDecoy,cands.length);i++){
+      boxes.push({x:cands[i].x, y:cands[i].y, decoy:true, color:'#6b7280', emoji:'📦'});
+    }
+  }
   const occ = ()=>{const m=new Set(); boxes.forEach(b=>m.add(key(b.x,b.y))); return m;};
-  // 플레이어: 빈 바닥 아무 곳(장애물 제외)
+  // 플레이어: 빈 바닥 아무 곳(장애물·짐 제외)
   let px,py;
   outer: for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     if(isWalkable(x,y) && !boxes.some(b=>b.x===x&&b.y===y)){px=x;py=y;break outer;}
   }
   const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
-  let rng = mulberry32(0x9e3779b1 ^ steps ^ (Date.now()&0xffff));
   for(let i=0;i<steps;i++){
     const o=occ();
     // 가능한 "당기기"(역-밀기) 후보 수집
@@ -444,12 +468,14 @@ function generate(steps){
 
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 
-function snapshot(){return {px:player.x,py:player.y,moves,boxes:boxes.map(b=>({x:b.x,y:b.y,id:b.id,color:b.color,emoji:b.emoji}))};}
+function snapshot(){return {px:player.x,py:player.y,moves,boxes:boxes.map(b=>({x:b.x,y:b.y,id:b.id,color:b.color,emoji:b.emoji,decoy:b.decoy}))};}
 function restore(s){player={x:s.px,y:s.py};moves=s.moves;boxes=s.boxes.map(b=>({...b}));}
 
 function boxAt(x,y){return boxes.find(b=>b.x===x&&b.y===y);}
 function targetAt(x,y){return targets.find(t=>t.x===x&&t.y===y);}
-function boxOnRightTarget(b){const t=targetAt(b.x,b.y);return t && t.itemId===b.id;}
+function boxOnRightTarget(b){const t=targetAt(b.x,b.y);return !b.decoy && t && t.itemId===b.id;}
+function realTotal(){return boxes.filter(b=>!b.decoy).length;}        // 정리해야 할 진짜 짐 수
+function placedCount(){return boxes.filter(boxOnRightTarget).length;} // 제자리에 놓인 진짜 짐 수
 
 // ---- 이동 ----
 function tryMove(dx,dy){
@@ -476,11 +502,11 @@ function undo(){ if(!history.length||solved) return; restore(history.pop()); aft
 function reset(){ restore(JSON.parse(JSON.stringify(startState))); history=[]; solved=false; afterMove(); }
 
 function afterMove(skipWin){
-  const placed = boxes.filter(boxOnRightTarget).length;
+  const placed = placedCount(), total = realTotal();
   document.getElementById('moveCount').textContent=moves;
-  document.getElementById('placedCount').textContent=placed+"/"+boxes.length;
+  document.getElementById('placedCount').textContent=placed+"/"+total;
   draw();
-  if(!skipWin && placed===boxes.length) onWin();
+  if(!skipWin && placed===total) onWin();
 }
 
 // ---- 렌더 ----
@@ -562,7 +588,15 @@ function draw(){
   });
   // 짐
   boxes.forEach(b=>{
-    const px=b.x*CELL, py=b.y*CELL, ok=boxOnRightTarget(b);
+    const px=b.x*CELL, py=b.y*CELL;
+    if(b.decoy){ // 밀 수 있는 잡동사니(목표 없음)
+      ctx.fillStyle='#4b5563'; rrect(px+3,py+3,CELL-6,CELL-6,7); ctx.fill();
+      ctx.lineWidth=2; ctx.strokeStyle='#9aa4b2'; rrect(px+3,py+3,CELL-6,CELL-6,7); ctx.stroke();
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=`${CELL*0.5}px serif`;
+      ctx.fillText('📦', px+CELL/2, py+CELL/2+1);
+      return;
+    }
+    const ok=boxOnRightTarget(b);
     if(ok){ ctx.shadowColor=hexA('#3fb950',0.9); ctx.shadowBlur=CELL*0.4; }
     ctx.fillStyle=hexA(b.color, ok?0.9:0.5);
     rrect(px+3,py+3,CELL-6,CELL-6,7); ctx.fill();
@@ -620,12 +654,21 @@ function buildLegend(){
 const LS_KEY='sokoban_cc_scores_v1';
 function loadScores(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[];}catch(e){return [];}}
 function saveScores(s){localStorage.setItem(LS_KEY,JSON.stringify(s));}
-function obsLabel(o){return {none:'장애물✕',few:'장애물·조금',many:'장애물·많이'}[o||'none'];}
+function obsShort(o){return {none:'',few:'🚧조금',many:'🚧많이'}[o||'none'];}
+function decoyShort(d){return {none:'',few:'📦조금',many:'📦많이'}[d||'none'];}
+function modeTag(diff,obs,dec){
+  let t='· '+LEVELS[levelIndex].name.split(' · ')[0]+' / '+diffLabel(diff);
+  if(obsShort(obs)) t+=' · '+obsShort(obs);
+  if(decoyShort(dec)) t+=' · '+decoyShort(dec);
+  return t;
+}
 function renderRanking(){
   const diff=document.getElementById('difficulty').value;
   const obs=document.getElementById('obstacles').value;
-  document.getElementById('rankDiffTag').textContent='· '+LEVELS[levelIndex].name.split(' · ')[0]+' / '+diffLabel(diff)+' / '+obsLabel(obs);
-  const rows=loadScores().filter(s=>s.difficulty===diff && s.level===levelIndex && (s.obstacles||'none')===obs)
+  const dec=document.getElementById('decoys').value;
+  document.getElementById('rankDiffTag').textContent=modeTag(diff,obs,dec);
+  const rows=loadScores().filter(s=>s.difficulty===diff && s.level===levelIndex
+      && (s.obstacles||'none')===obs && (s.decoys||'none')===dec)
     .sort((a,b)=>a.moves-b.moves).slice(0,10);
   const body=document.getElementById('rankBody'); body.innerHTML='';
   if(!rows.length){body.innerHTML='<tr><td colspan="4" style="color:var(--muted)">아직 기록이 없어요</td></tr>';return;}
@@ -644,12 +687,15 @@ function onWin(){
   solved=true; draw();
   const diff=document.getElementById('difficulty').value;
   const obs=document.getElementById('obstacles').value;
-  const obsNote=obs==='none'?'':` · ${obsLabel(obs)}`;
-  document.getElementById('winSummary').textContent=`[${LEVELS[levelIndex].name}] ${moves} 이동으로 ${boxes.length}개의 설정을 정리했습니다! (난이도: ${diffLabel(diff)}${obsNote})`;
+  const dec=document.getElementById('decoys').value;
+  const extra=[obsShort(obs),decoyShort(dec)].filter(Boolean).join(' ');
+  const extraNote=extra?` · ${extra}`:'';
+  document.getElementById('winSummary').textContent=`[${LEVELS[levelIndex].name}] ${moves} 이동으로 ${realTotal()}개의 설정을 정리했습니다! (난이도: ${diffLabel(diff)}${extraNote})`;
   const recap = ITEMS.map(it=>`${it.emoji} <b>${it.name}</b> → <code>${it.file}</code>`).join('<br>');
   document.getElementById('winRecap').innerHTML = '이번 레벨에서 배운 구조:<br>'+recap;
   const scores=loadScores();
-  const best=scores.filter(s=>s.difficulty===diff && s.level===levelIndex && (s.obstacles||'none')===obs).sort((a,b)=>a.moves-b.moves)[0];
+  const best=scores.filter(s=>s.difficulty===diff && s.level===levelIndex
+      && (s.obstacles||'none')===obs && (s.decoys||'none')===dec).sort((a,b)=>a.moves-b.moves)[0];
   const np=document.getElementById('playerName');
   np.placeholder = (best && moves<best.moves)? '🥇 신기록! 이름을 입력하세요' : '랭킹에 올릴 이름';
   const hasNext = levelIndex < LEVELS.length-1;
@@ -662,8 +708,9 @@ function doSaveScore(){
   const name=(document.getElementById('playerName').value||'익명').trim().slice(0,16)||'익명';
   const diff=document.getElementById('difficulty').value;
   const obs=document.getElementById('obstacles').value;
+  const dec=document.getElementById('decoys').value;
   const scores=loadScores();
-  scores.push({name,moves,difficulty:diff,level:levelIndex,obstacles:obs,date:new Date().toISOString()});
+  scores.push({name,moves,difficulty:diff,level:levelIndex,obstacles:obs,decoys:dec,date:new Date().toISOString()});
   saveScores(scores); renderRanking(); hide('winOverlay'); newGame();
 }
 
@@ -674,7 +721,7 @@ function generateBest(steps){
   let best=null, bestPlaced=1e9;
   for(let i=0;i<24;i++){
     generate(steps);
-    const placed=boxes.filter(boxOnRightTarget).length;
+    const placed=placedCount();
     if(placed<bestPlaced){bestPlaced=placed; best=snapshot();}
     if(bestPlaced<=1) break;
   }
@@ -686,7 +733,7 @@ function newGame(){
   for(let attempt=0; attempt<5; attempt++){
     placeObstacles(obstacleCount());
     generateBest(difficultySteps());
-    if(boxes.filter(boxOnRightTarget).length < boxes.length) break;
+    if(placedCount() < realTotal()) break;
   }
   solved=false; resizeCanvas(); afterMove(true); renderRanking();
 }
@@ -711,6 +758,7 @@ document.getElementById('resetBtn').onclick=reset;
 document.getElementById('newBtn').onclick=newGame;
 document.getElementById('difficulty').onchange=()=>{newGame();};
 document.getElementById('obstacles').onchange=()=>{newGame();};
+document.getElementById('decoys').onchange=()=>{newGame();};
 document.getElementById('level').onchange=(e)=>{setLevel(parseInt(e.target.value,10)); newGame();};
 document.getElementById('rankBtn').onclick=()=>{renderRanking();};
 document.getElementById('helpBtn').onclick=()=>show('helpOverlay');
