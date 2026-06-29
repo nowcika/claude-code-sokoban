@@ -105,6 +105,11 @@
           <option value="normal" selected>보통</option>
           <option value="hard">어려움</option>
         </select>
+        <select id="obstacles" title="이동을 막는 고정 장애물(🚧)">
+          <option value="none" selected>🚧 없음</option>
+          <option value="few">🚧 조금</option>
+          <option value="many">🚧 많이</option>
+        </select>
         <div class="spacer"></div>
         <button id="undoBtn" title="되돌리기 (U)">↶ 되돌리기</button>
         <button id="resetBtn" title="다시 시작 (R)">↺ 리셋</button>
@@ -116,7 +121,8 @@
       <div class="hint">
         이동: <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 또는 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
         · 되돌리기 <kbd>U</kbd> · 리셋 <kbd>R</kbd> · 새 퍼즐 <kbd>N</kbd><br>
-        짐은 <b>밀 수만</b> 있고 당길 수 없어요. 짐 뒤에 또 다른 짐이나 벽이 있으면 밀리지 않습니다. 막히면 <kbd>U</kbd>로 되돌리세요.
+        짐은 <b>밀 수만</b> 있고 당길 수 없어요. 짐 뒤에 또 다른 짐이나 벽이 있으면 밀리지 않습니다. 막히면 <kbd>U</kbd>로 되돌리세요.<br>
+        🚧 <b>장애물</b>은 밀 수 없는 고정 블록이라 길을 막습니다. 우측 상단 <b>🚧 선택</b>으로 양을 조절해 난이도를 올릴 수 있어요(돌아서 가야 함).
       </div>
     </div>
 
@@ -329,16 +335,21 @@ function setLevel(i){
 let grid;       // 'wall' | 'floor'
 let roomCells;  // [row][col] -> roomIndex or -1
 let targets;    // {x,y,itemId,roomIndex,color,emoji}
+let obstacles=[];           // 밀 수 없는 고정 장애물 {x,y}
+let obstacleSet=new Set();  // 빠른 조회
+let doorCells=new Set();    // 방 사이 문 칸(장애물 배치 제외)
 let player, boxes, moves, history, startState, solved=false;
 let CELL=36;
 
 function key(x,y){return x+","+y;}
 function inBounds(x,y){return x>=0&&y>=0&&x<COLS&&y<ROWS;}
 function isFloor(x,y){return inBounds(x,y)&&grid[y][x]==='floor';}
+function isObstacle(x,y){return obstacleSet.has(key(x,y));}        // 고정 장애물?
+function isWalkable(x,y){return isFloor(x,y) && !isObstacle(x,y);} // 지나갈 수 있는 칸(바닥+장애물 아님)
 function roomOrigin(gc,gr){return {x:gc*(IW+1)+1, y:gr*(IH+1)+1};}
 
 function buildWorld(){
-  grid=[]; roomCells=[];
+  grid=[]; roomCells=[]; doorCells=new Set();
   for(let y=0;y<ROWS;y++){grid.push(new Array(COLS).fill('wall')); roomCells.push(new Array(COLS).fill(-1));}
   // 방 내부 카브
   ROOMS.forEach((r,ri)=>{
@@ -350,8 +361,29 @@ function buildWorld(){
   // 인접 방 사이 문 카브 (모든 인접 연결 -> 완전 연결)
   for(let gr=0;gr<RR;gr++)for(let gc=0;gc<RC;gc++){
     const o=roomOrigin(gc,gr);
-    if(gc<RC-1){ const wx=(gc+1)*(IW+1); const wy=o.y+Math.floor(IH/2); grid[wy][wx]='floor'; }
-    if(gr<RR-1){ const wy=(gr+1)*(IH+1); const wx=o.x+Math.floor(IW/2); grid[wy][wx]='floor'; }
+    if(gc<RC-1){ const wx=(gc+1)*(IW+1); const wy=o.y+Math.floor(IH/2); grid[wy][wx]='floor'; doorCells.add(key(wx,wy)); }
+    if(gr<RR-1){ const wy=(gr+1)*(IH+1); const wx=o.x+Math.floor(IW/2); grid[wy][wx]='floor'; doorCells.add(key(wx,wy)); }
+  }
+}
+
+// ---- 고정 장애물 배치(목표 칸·문 칸 제외). 역생성이 벽처럼 취급하므로 풀이 가능성 유지 ----
+function obstacleCount(){
+  const n=ROOMS.length;
+  return {none:0, few:Math.ceil(n*0.8), many:Math.ceil(n*1.6)}[document.getElementById('obstacles').value] || 0;
+}
+function placeObstacles(count){
+  obstacles=[]; obstacleSet=new Set();
+  if(!count) return;
+  const targetSet=new Set(targets.map(t=>key(t.x,t.y)));
+  const cands=[];
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const k=key(x,y);
+    if(isFloor(x,y) && !targetSet.has(k) && !doorCells.has(k)) cands.push({x,y});
+  }
+  const rng=mulberry32(0x51ed270b ^ count ^ (COLS*131+ROWS) ^ (Date.now()&0xffff));
+  for(let i=cands.length-1;i>0;i--){const j=(rng()*(i+1))|0; const t=cands[i];cands[i]=cands[j];cands[j]=t;}
+  for(let i=0;i<Math.min(count,cands.length);i++){
+    obstacles.push(cands[i]); obstacleSet.add(key(cands[i].x,cands[i].y));
   }
 }
 
@@ -371,10 +403,10 @@ function generate(steps){
   // 짐을 목표 위치에 둠
   boxes = targets.map(t=>({x:t.x, y:t.y, id:t.itemId, color:t.color, emoji:t.emoji}));
   const occ = ()=>{const m=new Set(); boxes.forEach(b=>m.add(key(b.x,b.y))); return m;};
-  // 플레이어: 빈 바닥 아무 곳
+  // 플레이어: 빈 바닥 아무 곳(장애물 제외)
   let px,py;
   outer: for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
-    if(isFloor(x,y) && !boxes.some(b=>b.x===x&&b.y===y)){px=x;py=y;break outer;}
+    if(isWalkable(x,y) && !boxes.some(b=>b.x===x&&b.y===y)){px=x;py=y;break outer;}
   }
   const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
   let rng = mulberry32(0x9e3779b1 ^ steps ^ (Date.now()&0xffff));
@@ -385,7 +417,7 @@ function generate(steps){
     for(const [dx,dy] of DIRS){
       const ahead={x:px+dx,y:py+dy};       // 플레이어가 갈 칸
       const behind={x:px-dx,y:py-dy};      // 끌려올 짐 위치
-      if(!isFloor(ahead.x,ahead.y) || o.has(key(ahead.x,ahead.y))) continue;
+      if(!isWalkable(ahead.x,ahead.y) || o.has(key(ahead.x,ahead.y))) continue;
       if(!o.has(key(behind.x,behind.y))) continue; // 뒤에 짐이 있어야 당김
       pulls.push({dx,dy});
     }
@@ -393,7 +425,7 @@ function generate(steps){
     const walks=[];
     for(const [dx,dy] of DIRS){
       const nx=px+dx, ny=py+dy;
-      if(isFloor(nx,ny) && !o.has(key(nx,ny))) walks.push({dx,dy});
+      if(isWalkable(nx,ny) && !o.has(key(nx,ny))) walks.push({dx,dy});
     }
     let act=null;
     if(pulls.length && (rng()<0.72 || walks.length===0)) act={type:'pull', ...pulls[(rng()*pulls.length)|0]};
@@ -423,11 +455,11 @@ function boxOnRightTarget(b){const t=targetAt(b.x,b.y);return t && t.itemId===b.
 function tryMove(dx,dy){
   if(solved) return;
   const nx=player.x+dx, ny=player.y+dy;
-  if(!isFloor(nx,ny)) return;
+  if(!isWalkable(nx,ny)) return;                 // 벽·장애물이면 못 감
   const b=boxAt(nx,ny);
   if(b){
     const bx=nx+dx, by=ny+dy;
-    if(!isFloor(bx,by) || boxAt(bx,by)) return; // 밀 수 없음
+    if(!isWalkable(bx,by) || boxAt(bx,by)) return; // 벽·장애물·다른 짐이면 못 밀음
     history.push(snapshot());
     b.x=bx; b.y=by;
     player.x=nx; player.y=ny;
@@ -507,6 +539,17 @@ function draw(){
     ctx.fillText(sc.label, (o.x+IW)*CELL-3, o.y*CELL-3);
     ctx.textAlign='left';
   });
+  // 고정 장애물(밀 수 없음) — 길을 막는 잡동사니
+  obstacles.forEach(ob=>{
+    const px=ob.x*CELL, py=ob.y*CELL;
+    ctx.fillStyle='#2b3140'; rrect(px+3,py+3,CELL-6,CELL-6,6); ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle='#5a6478'; rrect(px+3,py+3,CELL-6,CELL-6,6); ctx.stroke();
+    // 빗금 무늬로 '고정' 느낌
+    ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(px+6,py+CELL-6); ctx.lineTo(px+CELL-6,py+6); ctx.stroke();
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`${CELL*0.46}px serif`; ctx.fillText('🚧', px+CELL/2, py+CELL/2+1);
+  });
   // 목표 칸
   ctx.lineWidth=2;
   targets.forEach(t=>{
@@ -577,10 +620,12 @@ function buildLegend(){
 const LS_KEY='sokoban_cc_scores_v1';
 function loadScores(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[];}catch(e){return [];}}
 function saveScores(s){localStorage.setItem(LS_KEY,JSON.stringify(s));}
+function obsLabel(o){return {none:'장애물✕',few:'장애물·조금',many:'장애물·많이'}[o||'none'];}
 function renderRanking(){
   const diff=document.getElementById('difficulty').value;
-  document.getElementById('rankDiffTag').textContent='· '+LEVELS[levelIndex].name.split(' · ')[0]+' / '+diffLabel(diff);
-  const rows=loadScores().filter(s=>s.difficulty===diff && s.level===levelIndex)
+  const obs=document.getElementById('obstacles').value;
+  document.getElementById('rankDiffTag').textContent='· '+LEVELS[levelIndex].name.split(' · ')[0]+' / '+diffLabel(diff)+' / '+obsLabel(obs);
+  const rows=loadScores().filter(s=>s.difficulty===diff && s.level===levelIndex && (s.obstacles||'none')===obs)
     .sort((a,b)=>a.moves-b.moves).slice(0,10);
   const body=document.getElementById('rankBody'); body.innerHTML='';
   if(!rows.length){body.innerHTML='<tr><td colspan="4" style="color:var(--muted)">아직 기록이 없어요</td></tr>';return;}
@@ -598,11 +643,13 @@ function escapeHtml(s){return (s+'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt
 function onWin(){
   solved=true; draw();
   const diff=document.getElementById('difficulty').value;
-  document.getElementById('winSummary').textContent=`[${LEVELS[levelIndex].name}] ${moves} 이동으로 ${boxes.length}개의 설정을 정리했습니다! (난이도: ${diffLabel(diff)})`;
+  const obs=document.getElementById('obstacles').value;
+  const obsNote=obs==='none'?'':` · ${obsLabel(obs)}`;
+  document.getElementById('winSummary').textContent=`[${LEVELS[levelIndex].name}] ${moves} 이동으로 ${boxes.length}개의 설정을 정리했습니다! (난이도: ${diffLabel(diff)}${obsNote})`;
   const recap = ITEMS.map(it=>`${it.emoji} <b>${it.name}</b> → <code>${it.file}</code>`).join('<br>');
   document.getElementById('winRecap').innerHTML = '이번 레벨에서 배운 구조:<br>'+recap;
   const scores=loadScores();
-  const best=scores.filter(s=>s.difficulty===diff && s.level===levelIndex).sort((a,b)=>a.moves-b.moves)[0];
+  const best=scores.filter(s=>s.difficulty===diff && s.level===levelIndex && (s.obstacles||'none')===obs).sort((a,b)=>a.moves-b.moves)[0];
   const np=document.getElementById('playerName');
   np.placeholder = (best && moves<best.moves)? '🥇 신기록! 이름을 입력하세요' : '랭킹에 올릴 이름';
   const hasNext = levelIndex < LEVELS.length-1;
@@ -614,8 +661,9 @@ function onWin(){
 function doSaveScore(){
   const name=(document.getElementById('playerName').value||'익명').trim().slice(0,16)||'익명';
   const diff=document.getElementById('difficulty').value;
+  const obs=document.getElementById('obstacles').value;
   const scores=loadScores();
-  scores.push({name,moves,difficulty:diff,level:levelIndex,date:new Date().toISOString()});
+  scores.push({name,moves,difficulty:diff,level:levelIndex,obstacles:obs,date:new Date().toISOString()});
   saveScores(scores); renderRanking(); hide('winOverlay'); newGame();
 }
 
@@ -633,7 +681,13 @@ function generateBest(steps){
   restore(best); moves=0; history=[]; solved=false; startState=snapshot();
 }
 function newGame(){
-  buildWorld(); buildTargets(); generateBest(difficultySteps());
+  buildWorld(); buildTargets();
+  // 장애물 배치 + 흩뿌리기. 혹시 전부 제자리(즉시 클리어) 배치가 나오면 몇 번 재시도
+  for(let attempt=0; attempt<5; attempt++){
+    placeObstacles(obstacleCount());
+    generateBest(difficultySteps());
+    if(boxes.filter(boxOnRightTarget).length < boxes.length) break;
+  }
   solved=false; resizeCanvas(); afterMove(true); renderRanking();
 }
 
@@ -656,6 +710,7 @@ document.getElementById('undoBtn').onclick=undo;
 document.getElementById('resetBtn').onclick=reset;
 document.getElementById('newBtn').onclick=newGame;
 document.getElementById('difficulty').onchange=()=>{newGame();};
+document.getElementById('obstacles').onchange=()=>{newGame();};
 document.getElementById('level').onchange=(e)=>{setLevel(parseInt(e.target.value,10)); newGame();};
 document.getElementById('rankBtn').onclick=()=>{renderRanking();};
 document.getElementById('helpBtn').onclick=()=>show('helpOverlay');
