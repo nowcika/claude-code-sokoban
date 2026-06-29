@@ -69,6 +69,21 @@
     background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;}
   .win-big{font-size:15px;color:var(--ok);font-weight:700;}
   .recap{margin-top:8px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+
+  /* 설정 상속 카드 */
+  .inote{color:var(--muted);font-size:11.5px;line-height:1.6;margin:0 0 10px;}
+  .inote:last-child{margin:10px 0 0;}
+  .inote code,.s code{background:var(--panel2);border:1px solid var(--line);padding:0 5px;border-radius:5px;
+    font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--text);}
+  .inherit{display:flex;flex-direction:column;}
+  .inherit .node{border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:var(--panel2);}
+  .inherit .node.win{border-color:var(--ok);}
+  .inherit .node .f{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:var(--text);}
+  .inherit .node .s{color:var(--muted);font-size:10.5px;margin-top:2px;}
+  .inherit .node .s-top{color:var(--ok);}
+  .inherit .arrow{color:var(--accent);text-align:center;font-size:10px;margin:3px 0;letter-spacing:.5px;}
+  .scope{font-size:9.5px;border:1px solid var(--line);border-radius:10px;padding:0 6px;margin-left:6px;
+    color:var(--muted);font-weight:400;vertical-align:middle;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -110,6 +125,20 @@
       <div class="card">
         <h2>📂 방 = Claude Code 설정 구조</h2>
         <div class="legend" id="legend"></div>
+      </div>
+      <div class="card">
+        <h2>⚙️ 설정 상속 (우선순위)</h2>
+        <p class="inote">같은 설정 항목이 여러 파일에 있으면 <b>좁은 범위가 넓은 범위를 덮어씁니다</b>. 아래로 갈수록 우선순위가 높아요.</p>
+        <div class="inherit">
+          <div class="node"><span class="f">~/.claude/settings.json</span><div class="s">🌐 사용자 전역 — 모든 프로젝트 공통 기본값</div></div>
+          <div class="arrow">▼ 덮어씀</div>
+          <div class="node"><span class="f">.claude/settings.json</span><div class="s">📁 프로젝트 공유 — 팀과 함께(커밋)</div></div>
+          <div class="arrow">▼ 덮어씀</div>
+          <div class="node"><span class="f">.claude/settings.local.json</span><div class="s">👤 프로젝트 개인 — 나만(gitignore)</div></div>
+          <div class="arrow">▼ 덮어씀</div>
+          <div class="node win"><span class="f">managed-settings.json</span><div class="s s-top">🏢 관리자 정책 — 조직 강제, 최우선(못 덮음)</div></div>
+        </div>
+        <p class="inote">🧠 메모리도 비슷합니다: <code>~/.claude/CLAUDE.md</code> → <code>./CLAUDE.md</code> → 하위 폴더 <code>CLAUDE.md</code> 순으로, 가까운 파일이 우선·누적됩니다.</p>
       </div>
       <div class="card">
         <h2>🏆 랭킹 <span class="tag" id="rankDiffTag"></span></h2>
@@ -481,13 +510,19 @@ function hexA(hex,a){const h=hex.replace('#','');const r=parseInt(h.substring(0,
   g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);return `rgba(${r},${g},${b},${a})`;}
 
 // ---- 레전드(교육 패널) ----
+// 파일 경로로 적용 범위(스코프) 추론: 전역 / 개인(로컬) / 프로젝트
+function scopeBadge(file){
+  if(file.startsWith('~/')) return '🌐 전역';
+  if(file.includes('.local.')) return '👤 개인';
+  return '📁 프로젝트';
+}
 function buildLegend(){
   const el=document.getElementById('legend'); el.innerHTML='';
   ROOMS.forEach(r=>{
     const div=document.createElement('div'); div.className='room';
     div.style.borderColor=hexA(r.color,0.5);
     const chips=r.items.map(it=>`<span class="chip" title="${it.info}">${it.emoji} ${it.name}</span>`).join('');
-    div.innerHTML=`<div class="name" style="color:${r.color}">${r.file}</div>
+    div.innerHTML=`<div class="name" style="color:${r.color}">${r.file}<span class="scope" title="적용 범위">${scopeBadge(r.file)}</span></div>
       <div class="desc">${r.desc}</div><div class="items">${chips}</div>`;
     el.appendChild(div);
   });
