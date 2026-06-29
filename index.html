@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Claude Code Sokoban — 설정 정리 퍼즐</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#2a3142;
+    --text:#e6edf3; --muted:#8b97a8; --accent:#d97757; --accent2:#7aa2f7;
+    --ok:#3fb950;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;}
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 18px 60px;}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
+  header h1{font-size:20px;margin:0;letter-spacing:-0.3px;}
+  header h1 .dot{color:var(--accent);}
+  header .sub{color:var(--muted);font-size:13px;}
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start;}
+  @media (max-width:980px){.layout{grid-template-columns:1fr}}
+
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-variant-numeric:tabular-nums;}
+  .stat b{color:var(--accent2);font-size:18px;}
+  .stat small{color:var(--muted);display:block;font-size:11px;}
+  .spacer{flex:1}
+  button,select{font-family:inherit;font-size:13px;color:var(--text);background:var(--panel2);
+    border:1px solid var(--line);border-radius:9px;padding:8px 12px;cursor:pointer;transition:.12s;}
+  button:hover,select:hover{border-color:var(--accent2);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#1a1008;font-weight:600;}
+  button.primary:hover{filter:brightness(1.08);}
+  canvas{display:block;width:100%;height:auto;background:#0a0d12;border-radius:10px;image-rendering:auto;}
+  .hint{color:var(--muted);font-size:12px;margin-top:10px;line-height:1.6;}
+  kbd{background:#22293a;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;
+    padding:1px 6px;font-size:11px;font-family:ui-monospace,Menlo,monospace;}
+
+  .side{display:flex;flex-direction:column;gap:14px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;}
+  .card h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:6px;}
+  .legend{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;}
+  .room{border:1px solid var(--line);border-radius:10px;padding:8px 10px;}
+  .room .name{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;}
+  .room .desc{color:var(--muted);font-size:11px;margin:3px 0 6px;line-height:1.5;}
+  .items{display:flex;flex-wrap:wrap;gap:5px;}
+  .chip{font-size:11px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;
+    padding:2px 8px;display:inline-flex;gap:4px;align-items:center;cursor:help;}
+
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);}
+  th{color:var(--muted);font-weight:500;}
+  td.rank{color:var(--accent);font-weight:700;width:26px;}
+  td.mv{font-variant-numeric:tabular-nums;text-align:right;}
+  .tag{font-size:10px;color:var(--muted);}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(3,6,12,.72);display:none;align-items:center;
+    justify-content:center;padding:20px;z-index:50;}
+  .overlay.show{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:560px;
+    width:100%;padding:24px;max-height:88vh;overflow:auto;}
+  .modal h2{margin-top:0;}
+  .modal p,.modal li{color:#cdd6e4;line-height:1.65;font-size:14px;}
+  .modal code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-family:ui-monospace,monospace;font-size:12px;}
+  .row{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap;}
+  input[type=text]{flex:1;min-width:160px;font-family:inherit;font-size:14px;color:var(--text);
+    background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;}
+  .win-big{font-size:15px;color:var(--ok);font-weight:700;}
+  .recap{margin-top:8px;font-size:12.5px;color:var(--muted);line-height:1.7;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="dot">◣</span> Claude Code Sokoban</h1>
+    <span class="sub">설정 항목(짐)을 알맞은 설정 파일(방)로 밀어 넣어 정리하세요</span>
+  </header>
+
+  <div class="layout">
+    <!-- LEFT: game -->
+    <div class="stage">
+      <div class="toolbar">
+        <div class="stat"><b id="moveCount">0</b><small>이동 수</small></div>
+        <div class="stat"><b id="placedCount">0/0</b><small>정리 완료</small></div>
+        <select id="level" title="레벨 선택"></select>
+        <select id="difficulty" title="난이도(짐이 흩어지는 정도)">
+          <option value="easy">쉬움</option>
+          <option value="normal" selected>보통</option>
+          <option value="hard">어려움</option>
+        </select>
+        <div class="spacer"></div>
+        <button id="undoBtn" title="되돌리기 (U)">↶ 되돌리기</button>
+        <button id="resetBtn" title="다시 시작 (R)">↺ 리셋</button>
+        <button id="newBtn" class="primary" title="새 퍼즐 (N)">＋ 새 퍼즐</button>
+        <button id="rankBtn">🏆 랭킹</button>
+        <button id="helpBtn">？ 도움말</button>
+      </div>
+      <canvas id="game" width="900" height="396"></canvas>
+      <div class="hint">
+        이동: <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 또는 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+        · 되돌리기 <kbd>U</kbd> · 리셋 <kbd>R</kbd> · 새 퍼즐 <kbd>N</kbd><br>
+        짐은 <b>밀 수만</b> 있고 당길 수 없어요. 짐 뒤에 또 다른 짐이나 벽이 있으면 밀리지 않습니다. 막히면 <kbd>U</kbd>로 되돌리세요.
+      </div>
+    </div>
+
+    <!-- RIGHT: legend + leaderboard -->
+    <div class="side">
+      <div class="card">
+        <h2>📂 방 = Claude Code 설정 구조</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="card">
+        <h2>🏆 랭킹 <span class="tag" id="rankDiffTag"></span></h2>
+        <table><thead><tr><th>#</th><th>이름</th><th>난이도</th><th class="mv">이동</th></tr></thead>
+          <tbody id="rankBody"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WIN modal -->
+<div class="overlay" id="winOverlay">
+  <div class="modal">
+    <h2>🎉 모든 설정을 제자리에 정리했습니다!</h2>
+    <p class="win-big" id="winSummary"></p>
+    <div class="recap" id="winRecap"></div>
+    <div class="row">
+      <input type="text" id="playerName" maxlength="16" placeholder="랭킹에 올릴 이름" />
+      <button class="primary" id="saveScore">랭킹 저장</button>
+      <button class="primary" id="winNext">다음 레벨 ▶</button>
+      <button id="winNew">새 퍼즐</button>
+    </div>
+  </div>
+</div>
+
+<!-- HELP modal -->
+<div class="overlay" id="helpOverlay">
+  <div class="modal">
+    <h2>？ 게임 설명 & Claude Code 배우기</h2>
+    <p>이 게임의 각 <b>방</b>은 Claude Code가 실제로 사용하는 <b>설정 파일/디렉토리</b>입니다.
+       바닥에 흩어진 <b>짐(📦)</b>은 그 설정에 들어가는 <b>항목</b>이고요.
+       모든 짐을 자기 방의 <b>목표 칸(점선)</b>으로 밀어 넣으면 클리어!</p>
+    <ul>
+      <li><code>settings.json</code> — 훅 🪝 · 권한 🔐 · 환경변수 🌱 · 모델 🧠 설정</li>
+      <li><code>CLAUDE.md</code> — 프로젝트 메모리 📌 · 코딩 규칙 📐 (항상 컨텍스트에 로드)</li>
+      <li><code>.mcp.json</code> — MCP 서버 🔌 연결 정의</li>
+      <li><code>.claude/commands/</code> — 커스텀 슬래시 명령 ⚡ (<code>/명령</code>)</li>
+      <li><code>.claude/agents/</code> — 서브에이전트 🤖 정의</li>
+      <li><code>.claude/skills/</code> — 스킬 🎯 (<code>SKILL.md</code>)</li>
+      <li><code>settings.local.json</code> — 개인용 로컬 오버라이드 🔒 (gitignore 대상)</li>
+      <li><code>.gitignore</code> — 무시 규칙 🚫</li>
+    </ul>
+    <p>짐을 정확한 방에 넣어야 인정됩니다. 예를 들어 <b>훅 🪝</b> 짐은 반드시
+       <code>settings.json</code> 방의 목표 칸으로 가야 해요. <b>최소 이동 수</b>로 클리어하는 게 목표입니다.</p>
+    <div class="row"><button class="primary" id="helpClose">시작하기</button></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Claude Code Sokoban
+   - 방 = 설정 파일/디렉토리, 짐 = 설정 항목
+   - 역생성(완성 상태에서 거꾸로 끌어내기)으로 항상 풀 수 있는 배치 생성
+   ============================================================ */
+
+// ---- 레벨 정의 (방 = Claude Code 설정 파일/디렉토리, item id는 한 레벨 안에서 유일) ----
+const LEVELS = [
+  { name:"L1 · 설정 첫걸음", rc:3, rr:2, rooms:[
+    { gc:0,gr:0, file:"settings.json", color:"#d97757", desc:"훅·권한 등 핵심 설정(JSON)", items:[
+      {id:"hook",emoji:"🪝",name:"훅(hook)",info:"특정 시점에 자동 실행되는 명령"},
+      {id:"perm",emoji:"🔐",name:"권한(permissions)",info:"허용/거부할 도구·명령 규칙"} ]},
+    { gc:1,gr:0, file:"CLAUDE.md", color:"#7aa2f7", desc:"항상 로드되는 프로젝트 메모리", items:[
+      {id:"mem",emoji:"📌",name:"프로젝트 메모리",info:"프로젝트 규칙·맥락을 기억시키는 지침"} ]},
+    { gc:2,gr:0, file:".mcp.json", color:"#bb9af7", desc:"MCP 서버 연결 정의", items:[
+      {id:"mcp",emoji:"🔌",name:"MCP 서버",info:"외부 도구/데이터 소스를 붙이는 MCP 서버"} ]},
+    { gc:0,gr:1, file:".claude/commands/", short:"commands/", color:"#e0af68", desc:"커스텀 슬래시 명령(.md)", items:[
+      {id:"cmd",emoji:"⚡",name:"슬래시 명령",info:"/명령 으로 실행하는 재사용 프롬프트"} ]},
+    { gc:1,gr:1, file:".claude/agents/", short:"agents/", color:"#73daca", desc:"서브에이전트 정의(.md)", items:[
+      {id:"agent",emoji:"🤖",name:"서브에이전트",info:"특정 작업 전담 에이전트"} ]},
+    { gc:2,gr:1, file:".gitignore", color:"#7dcfff", desc:"버전관리에서 제외할 항목", items:[
+      {id:"ign",emoji:"🚫",name:"무시 규칙",info:"커밋에서 제외할 파일 패턴"} ]},
+  ]},
+  { name:"L2 · 설정 심화", rc:4, rr:2, rooms:[
+  { gc:0, gr:0, file:"settings.json", color:"#d97757",
+    desc:"훅·권한·환경변수·모델 등 핵심 설정(JSON)",
+    items:[
+      {id:"hook", emoji:"🪝", name:"훅(hook)", info:"특정 시점에 자동 실행되는 명령. PreToolUse/Stop 등"},
+      {id:"perm", emoji:"🔐", name:"권한(permissions)", info:"허용/거부할 도구·명령 규칙"},
+      {id:"env",  emoji:"🌱", name:"환경변수(env)", info:"세션에 주입되는 환경변수"},
+      {id:"model",emoji:"🧠", name:"모델(model)", info:"사용할 기본 모델 지정"},
+    ]},
+  { gc:1, gr:0, file:"CLAUDE.md", color:"#7aa2f7",
+    desc:"항상 로드되는 프로젝트 메모리/지침",
+    items:[
+      {id:"mem",  emoji:"📌", name:"프로젝트 메모리", info:"프로젝트 규칙·맥락을 기억시키는 지침"},
+      {id:"conv", emoji:"📐", name:"코딩 규칙", info:"코드 스타일·컨벤션 안내"},
+    ]},
+  { gc:2, gr:0, file:".mcp.json", color:"#bb9af7",
+    desc:"MCP 서버 연결 정의",
+    items:[
+      {id:"mcp",  emoji:"🔌", name:"MCP 서버", info:"외부 도구/데이터 소스를 붙이는 MCP 서버"},
+    ]},
+  { gc:3, gr:0, file:".claude/commands/", color:"#e0af68",
+    desc:"커스텀 슬래시 명령(.md)",
+    items:[
+      {id:"cmd",  emoji:"⚡", name:"슬래시 명령", info:"/명령 으로 실행하는 재사용 프롬프트"},
+    ]},
+  { gc:0, gr:1, file:".claude/agents/", color:"#73daca",
+    desc:"서브에이전트 정의(.md)",
+    items:[
+      {id:"agent",emoji:"🤖", name:"서브에이전트", info:"특정 작업 전담 에이전트(도구·모델 지정 가능)"},
+    ]},
+  { gc:1, gr:1, file:".claude/skills/", color:"#9ece6a",
+    desc:"스킬(SKILL.md)",
+    items:[
+      {id:"skill",emoji:"🎯", name:"스킬", info:"필요할 때 불러오는 전문 능력 묶음"},
+    ]},
+  { gc:2, gr:1, file:"settings.local.json", color:"#f7768e",
+    desc:"개인용 로컬 오버라이드(보통 gitignore)",
+    items:[
+      {id:"local",emoji:"🔒", name:"로컬 권한", info:"공유하지 않는 개인 설정/권한"},
+    ]},
+  { gc:3, gr:1, file:".gitignore", color:"#7dcfff",
+    desc:"버전관리에서 제외할 항목",
+    items:[
+      {id:"ign",  emoji:"🚫", name:"무시 규칙", info:"커밋에서 제외할 파일 패턴"},
+    ]},
+  ]},
+  { name:"L3 · 전체 생태계", rc:4, rr:3, rooms:[
+    { gc:0,gr:0, file:".claude/settings.json", short:"settings.json", color:"#d97757", desc:"프로젝트 공유 설정", items:[
+      {id:"hook",emoji:"🪝",name:"훅(hook)",info:"특정 시점에 자동 실행되는 명령"},
+      {id:"perm",emoji:"🔐",name:"권한(permissions)",info:"허용/거부할 도구·명령 규칙"} ]},
+    { gc:1,gr:0, file:".claude/settings.local.json", short:"settings.local", color:"#f7768e", desc:"개인 로컬 오버라이드(gitignore)", items:[
+      {id:"local",emoji:"🔒",name:"로컬 권한",info:"공유하지 않는 개인 설정/권한"} ]},
+    { gc:2,gr:0, file:"~/.claude/settings.json", short:"~ user settings", color:"#ff9e64", desc:"사용자 전역 설정", items:[
+      {id:"model",emoji:"🧠",name:"모델(model)",info:"전역 기본 모델 지정"},
+      {id:"env",emoji:"🌱",name:"환경변수(env)",info:"전역 환경변수"} ]},
+    { gc:3,gr:0, file:"CLAUDE.md", short:"CLAUDE.md", color:"#7aa2f7", desc:"프로젝트 메모리/지침", items:[
+      {id:"mem",emoji:"📌",name:"프로젝트 메모리",info:"프로젝트 규칙·맥락을 기억시키는 지침"} ]},
+    { gc:0,gr:1, file:".mcp.json", short:".mcp.json", color:"#bb9af7", desc:"MCP 서버 연결 정의", items:[
+      {id:"mcp",emoji:"🔌",name:"MCP 서버",info:"외부 도구/데이터 소스를 붙이는 MCP 서버"} ]},
+    { gc:1,gr:1, file:".claude/commands/", short:"commands/", color:"#e0af68", desc:"커스텀 슬래시 명령(.md)", items:[
+      {id:"cmd",emoji:"⚡",name:"슬래시 명령",info:"/명령 으로 실행하는 재사용 프롬프트"} ]},
+    { gc:2,gr:1, file:".claude/agents/", short:"agents/", color:"#73daca", desc:"서브에이전트 정의(.md)", items:[
+      {id:"agent",emoji:"🤖",name:"서브에이전트",info:"특정 작업 전담 에이전트"} ]},
+    { gc:3,gr:1, file:".claude/skills/", short:"skills/", color:"#9ece6a", desc:"스킬(SKILL.md)", items:[
+      {id:"skill",emoji:"🎯",name:"스킬",info:"필요할 때 불러오는 전문 능력 묶음"} ]},
+    { gc:0,gr:2, file:".claude/hooks/", short:"hooks/", color:"#e6a14c", desc:"훅이 실행하는 스크립트", items:[
+      {id:"script",emoji:"📜",name:"훅 스크립트",info:"settings의 훅이 호출하는 실행 파일"} ]},
+    { gc:1,gr:2, file:".claude/output-styles/", short:"output-styles/", color:"#c0caf5", desc:"출력 스타일 정의", items:[
+      {id:"style",emoji:"🎨",name:"출력 스타일",info:"응답 형식/말투 커스터마이즈"} ]},
+    { gc:2,gr:2, file:".claude/plugins/", short:"plugins/", color:"#b4f9f8", desc:"플러그인/마켓플레이스", items:[
+      {id:"plugin",emoji:"🧩",name:"플러그인",info:"명령·에이전트·스킬 묶음 패키지"} ]},
+    { gc:3,gr:2, file:".gitignore", short:".gitignore", color:"#7dcfff", desc:"버전관리 제외 항목", items:[
+      {id:"ign",emoji:"🚫",name:"무시 규칙",info:"커밋에서 제외할 파일 패턴"} ]},
+  ]},
+];
+
+// ---- 현재 레벨 상태 ----
+let levelIndex=0, ROOMS=[], ITEMS=[];
+function rebuildItems(){ ITEMS=[];
+  ROOMS.forEach((r,ri)=>r.items.forEach(it=>ITEMS.push({...it, roomIndex:ri, color:r.color, file:r.file}))); }
+
+// ---- 그리드 구성(레벨에 따라 가변) ----
+const IW=5, IH=4;                        // 방 내부 크기
+let RC=4, RR=2, COLS=0, ROWS=0;          // 방 격자(레벨에서 설정)
+const PREF_OFFSETS = [[2,1],[2,2],[1,2],[3,1]]; // 방 내부 목표 후보(모서리 회피, 방당 최대 4)
+function setLevel(i){
+  levelIndex=(i+LEVELS.length)%LEVELS.length;
+  const L=LEVELS[levelIndex];
+  ROOMS=L.rooms; RC=L.rc; RR=L.rr;
+  COLS=RC*(IW+1)+1; ROWS=RR*(IH+1)+1;
+  rebuildItems(); buildLegend();
+  const sel=document.getElementById('level'); if(sel) sel.value=String(levelIndex);
+}
+
+let grid;       // 'wall' | 'floor'
+let roomCells;  // [row][col] -> roomIndex or -1
+let targets;    // {x,y,itemId,roomIndex,color,emoji}
+let player, boxes, moves, history, startState, solved=false;
+let CELL=36;
+
+function key(x,y){return x+","+y;}
+function inBounds(x,y){return x>=0&&y>=0&&x<COLS&&y<ROWS;}
+function isFloor(x,y){return inBounds(x,y)&&grid[y][x]==='floor';}
+function roomOrigin(gc,gr){return {x:gc*(IW+1)+1, y:gr*(IH+1)+1};}
+
+function buildWorld(){
+  grid=[]; roomCells=[];
+  for(let y=0;y<ROWS;y++){grid.push(new Array(COLS).fill('wall')); roomCells.push(new Array(COLS).fill(-1));}
+  // 방 내부 카브
+  ROOMS.forEach((r,ri)=>{
+    const o=roomOrigin(r.gc,r.gr);
+    for(let dy=0;dy<IH;dy++)for(let dx=0;dx<IW;dx++){
+      grid[o.y+dy][o.x+dx]='floor'; roomCells[o.y+dy][o.x+dx]=ri;
+    }
+  });
+  // 인접 방 사이 문 카브 (모든 인접 연결 -> 완전 연결)
+  for(let gr=0;gr<RR;gr++)for(let gc=0;gc<RC;gc++){
+    const o=roomOrigin(gc,gr);
+    if(gc<RC-1){ const wx=(gc+1)*(IW+1); const wy=o.y+Math.floor(IH/2); grid[wy][wx]='floor'; }
+    if(gr<RR-1){ const wy=(gr+1)*(IH+1); const wx=o.x+Math.floor(IW/2); grid[wy][wx]='floor'; }
+  }
+}
+
+function buildTargets(){
+  targets=[];
+  ROOMS.forEach((r,ri)=>{
+    const o=roomOrigin(r.gc,r.gr);
+    r.items.forEach((it,k)=>{
+      const off=PREF_OFFSETS[k%PREF_OFFSETS.length];
+      targets.push({x:o.x+off[0], y:o.y+off[1], itemId:it.id, roomIndex:ri, color:r.color, emoji:it.emoji});
+    });
+  });
+}
+
+// ---- 역생성: 완성 상태(짐=목표)에서 거꾸로 끌어내 흩뿌림 ----
+function generate(steps){
+  // 짐을 목표 위치에 둠
+  boxes = targets.map(t=>({x:t.x, y:t.y, id:t.itemId, color:t.color, emoji:t.emoji}));
+  const occ = ()=>{const m=new Set(); boxes.forEach(b=>m.add(key(b.x,b.y))); return m;};
+  // 플레이어: 빈 바닥 아무 곳
+  let px,py;
+  outer: for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    if(isFloor(x,y) && !boxes.some(b=>b.x===x&&b.y===y)){px=x;py=y;break outer;}
+  }
+  const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+  let rng = mulberry32(0x9e3779b1 ^ steps ^ (Date.now()&0xffff));
+  for(let i=0;i<steps;i++){
+    const o=occ();
+    // 가능한 "당기기"(역-밀기) 후보 수집
+    const pulls=[];
+    for(const [dx,dy] of DIRS){
+      const ahead={x:px+dx,y:py+dy};       // 플레이어가 갈 칸
+      const behind={x:px-dx,y:py-dy};      // 끌려올 짐 위치
+      if(!isFloor(ahead.x,ahead.y) || o.has(key(ahead.x,ahead.y))) continue;
+      if(!o.has(key(behind.x,behind.y))) continue; // 뒤에 짐이 있어야 당김
+      pulls.push({dx,dy});
+    }
+    // 단순 이동 후보
+    const walks=[];
+    for(const [dx,dy] of DIRS){
+      const nx=px+dx, ny=py+dy;
+      if(isFloor(nx,ny) && !o.has(key(nx,ny))) walks.push({dx,dy});
+    }
+    let act=null;
+    if(pulls.length && (rng()<0.72 || walks.length===0)) act={type:'pull', ...pulls[(rng()*pulls.length)|0]};
+    else if(walks.length) act={type:'walk', ...walks[(rng()*walks.length)|0]};
+    else continue;
+    if(act.type==='pull'){
+      const b = boxes.find(b=>b.x===px-act.dx && b.y===py-act.dy);
+      b.x=px; b.y=py;                // 짐이 플레이어 자리로
+      px+=act.dx; py+=act.dy;        // 플레이어 전진
+    }else{ px+=act.dx; py+=act.dy; }
+  }
+  player={x:px,y:py};
+  moves=0; history=[]; solved=false;
+  startState=snapshot();
+}
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+function snapshot(){return {px:player.x,py:player.y,moves,boxes:boxes.map(b=>({x:b.x,y:b.y,id:b.id,color:b.color,emoji:b.emoji}))};}
+function restore(s){player={x:s.px,y:s.py};moves=s.moves;boxes=s.boxes.map(b=>({...b}));}
+
+function boxAt(x,y){return boxes.find(b=>b.x===x&&b.y===y);}
+function targetAt(x,y){return targets.find(t=>t.x===x&&t.y===y);}
+function boxOnRightTarget(b){const t=targetAt(b.x,b.y);return t && t.itemId===b.id;}
+
+// ---- 이동 ----
+function tryMove(dx,dy){
+  if(solved) return;
+  const nx=player.x+dx, ny=player.y+dy;
+  if(!isFloor(nx,ny)) return;
+  const b=boxAt(nx,ny);
+  if(b){
+    const bx=nx+dx, by=ny+dy;
+    if(!isFloor(bx,by) || boxAt(bx,by)) return; // 밀 수 없음
+    history.push(snapshot());
+    b.x=bx; b.y=by;
+    player.x=nx; player.y=ny;
+    moves++;
+  }else{
+    history.push(snapshot());
+    player.x=nx; player.y=ny;
+    moves++;
+  }
+  if(history.length>500) history.shift();
+  afterMove();
+}
+function undo(){ if(!history.length||solved) return; restore(history.pop()); afterMove(true); }
+function reset(){ restore(JSON.parse(JSON.stringify(startState))); history=[]; solved=false; afterMove(); }
+
+function afterMove(skipWin){
+  const placed = boxes.filter(boxOnRightTarget).length;
+  document.getElementById('moveCount').textContent=moves;
+  document.getElementById('placedCount').textContent=placed+"/"+boxes.length;
+  draw();
+  if(!skipWin && placed===boxes.length) onWin();
+}
+
+// ---- 렌더 ----
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+function resizeCanvas(){
+  const maxW = canvas.parentElement.clientWidth - 28;
+  CELL = Math.max(20, Math.floor(maxW/COLS));
+  canvas.width = COLS*CELL; canvas.height = ROWS*CELL;
+  draw();
+}
+function rrect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+function draw(){
+  if(!grid) return;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // 바닥/벽
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const px=x*CELL, py=y*CELL;
+    if(grid[y][x]==='wall'){ ctx.fillStyle='#10141c'; ctx.fillRect(px,py,CELL,CELL);
+      ctx.fillStyle='#161c28'; ctx.fillRect(px+1,py+1,CELL-2,CELL-2);
+    }else{
+      const ri=roomCells[y][x];
+      const col = ri>=0?ROOMS[ri].color:'#888';
+      ctx.fillStyle='#0c1017'; ctx.fillRect(px,py,CELL,CELL);
+      ctx.fillStyle=hexA(col,0.07); ctx.fillRect(px,py,CELL,CELL);
+    }
+  }
+  // 방 라벨 (각 방 상단)
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ROOMS.forEach(r=>{
+    const o=roomOrigin(r.gc,r.gr);
+    ctx.fillStyle=hexA(r.color,0.9);
+    ctx.font=`600 ${Math.max(9,CELL*0.30)}px ui-monospace,Menlo,monospace`;
+    ctx.fillText(r.short||r.file, o.x*CELL+3, o.y*CELL-3 + (o.y>0? 0: CELL*0.5));
+  });
+  // 목표 칸
+  ctx.lineWidth=2;
+  targets.forEach(t=>{
+    const px=t.x*CELL, py=t.y*CELL;
+    ctx.setLineDash([4,3]); ctx.strokeStyle=hexA(t.color,0.85);
+    rrect(px+3,py+3,CELL-6,CELL-6,6); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha=0.28; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`${CELL*0.5}px serif`;
+    ctx.fillText(t.emoji, px+CELL/2, py+CELL/2+1); ctx.globalAlpha=1;
+  });
+  // 짐
+  boxes.forEach(b=>{
+    const px=b.x*CELL, py=b.y*CELL, ok=boxOnRightTarget(b);
+    if(ok){ ctx.shadowColor=hexA('#3fb950',0.9); ctx.shadowBlur=CELL*0.4; }
+    ctx.fillStyle=hexA(b.color, ok?0.9:0.5);
+    rrect(px+3,py+3,CELL-6,CELL-6,7); ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.lineWidth=2; ctx.strokeStyle= ok? '#3fb950' : hexA(b.color,1);
+    rrect(px+3,py+3,CELL-6,CELL-6,7); ctx.stroke();
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`${CELL*0.5}px serif`;
+    ctx.fillText(b.emoji, px+CELL/2, py+CELL/2+1);
+    if(ok){ctx.font=`${CELL*0.3}px serif`; ctx.fillText('✓', px+CELL-8, py+10);}
+  });
+  // 플레이어
+  const px=player.x*CELL, py=player.y*CELL;
+  ctx.fillStyle='#ffffff'; ctx.beginPath();
+  ctx.arc(px+CELL/2,py+CELL/2,CELL*0.34,0,Math.PI*2); ctx.fill();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font=`${CELL*0.5}px serif`; ctx.fillText('🧑‍💻', px+CELL/2, py+CELL/2+1);
+}
+function hexA(hex,a){const h=hex.replace('#','');const r=parseInt(h.substring(0,2),16),
+  g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);return `rgba(${r},${g},${b},${a})`;}
+
+// ---- 레전드(교육 패널) ----
+function buildLegend(){
+  const el=document.getElementById('legend'); el.innerHTML='';
+  ROOMS.forEach(r=>{
+    const div=document.createElement('div'); div.className='room';
+    div.style.borderColor=hexA(r.color,0.5);
+    const chips=r.items.map(it=>`<span class="chip" title="${it.info}">${it.emoji} ${it.name}</span>`).join('');
+    div.innerHTML=`<div class="name" style="color:${r.color}">${r.file}</div>
+      <div class="desc">${r.desc}</div><div class="items">${chips}</div>`;
+    el.appendChild(div);
+  });
+}
+
+// ---- 랭킹 ----
+const LS_KEY='sokoban_cc_scores_v1';
+function loadScores(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[];}catch(e){return [];}}
+function saveScores(s){localStorage.setItem(LS_KEY,JSON.stringify(s));}
+function renderRanking(){
+  const diff=document.getElementById('difficulty').value;
+  document.getElementById('rankDiffTag').textContent='· '+LEVELS[levelIndex].name.split(' · ')[0]+' / '+diffLabel(diff);
+  const rows=loadScores().filter(s=>s.difficulty===diff && s.level===levelIndex)
+    .sort((a,b)=>a.moves-b.moves).slice(0,10);
+  const body=document.getElementById('rankBody'); body.innerHTML='';
+  if(!rows.length){body.innerHTML='<tr><td colspan="4" style="color:var(--muted)">아직 기록이 없어요</td></tr>';return;}
+  rows.forEach((s,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="rank">${i+1}</td><td>${escapeHtml(s.name)}</td>
+      <td class="tag">${diffLabel(s.difficulty)}</td><td class="mv">${s.moves}</td>`;
+    body.appendChild(tr);
+  });
+}
+function diffLabel(d){return {easy:'쉬움',normal:'보통',hard:'어려움'}[d]||d;}
+function escapeHtml(s){return (s+'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// ---- 승리 ----
+function onWin(){
+  solved=true; draw();
+  const diff=document.getElementById('difficulty').value;
+  document.getElementById('winSummary').textContent=`[${LEVELS[levelIndex].name}] ${moves} 이동으로 ${boxes.length}개의 설정을 정리했습니다! (난이도: ${diffLabel(diff)})`;
+  const recap = ITEMS.map(it=>`${it.emoji} <b>${it.name}</b> → <code>${it.file}</code>`).join('<br>');
+  document.getElementById('winRecap').innerHTML = '이번 레벨에서 배운 구조:<br>'+recap;
+  const scores=loadScores();
+  const best=scores.filter(s=>s.difficulty===diff && s.level===levelIndex).sort((a,b)=>a.moves-b.moves)[0];
+  const np=document.getElementById('playerName');
+  np.placeholder = (best && moves<best.moves)? '🥇 신기록! 이름을 입력하세요' : '랭킹에 올릴 이름';
+  const hasNext = levelIndex < LEVELS.length-1;
+  const nb=document.getElementById('winNext');
+  nb.style.display = hasNext ? '' : 'none';
+  nb.textContent = hasNext ? `다음 레벨 ▶ ${LEVELS[levelIndex+1].name.split(' · ')[0]}` : '';
+  show('winOverlay'); setTimeout(()=>np.focus(),50);
+}
+function doSaveScore(){
+  const name=(document.getElementById('playerName').value||'익명').trim().slice(0,16)||'익명';
+  const diff=document.getElementById('difficulty').value;
+  const scores=loadScores();
+  scores.push({name,moves,difficulty:diff,level:levelIndex,date:new Date().toISOString()});
+  saveScores(scores); renderRanking(); hide('winOverlay'); newGame();
+}
+
+// ---- 새 게임 ----
+function difficultySteps(){return {easy:700, normal:1300, hard:2200}[document.getElementById('difficulty').value];}
+// 여러 번 흩뿌려 "이미 제자리인 짐"이 가장 적은 배치를 채택 (역생성이라 항상 풀이 가능)
+function generateBest(steps){
+  let best=null, bestPlaced=1e9;
+  for(let i=0;i<24;i++){
+    generate(steps);
+    const placed=boxes.filter(boxOnRightTarget).length;
+    if(placed<bestPlaced){bestPlaced=placed; best=snapshot();}
+    if(bestPlaced<=1) break;
+  }
+  restore(best); moves=0; history=[]; solved=false; startState=snapshot();
+}
+function newGame(){
+  buildWorld(); buildTargets(); generateBest(difficultySteps());
+  solved=false; resizeCanvas(); afterMove(true); renderRanking();
+}
+
+// ---- 모달 헬퍼 ----
+function show(id){document.getElementById(id).classList.add('show');}
+function hide(id){document.getElementById(id).classList.remove('show');}
+
+// ---- 이벤트 ----
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(['arrowup','w'].includes(k)){tryMove(0,-1);e.preventDefault();}
+  else if(['arrowdown','s'].includes(k)){tryMove(0,1);e.preventDefault();}
+  else if(['arrowleft','a'].includes(k)){tryMove(-1,0);e.preventDefault();}
+  else if(['arrowright','d'].includes(k)){tryMove(1,0);e.preventDefault();}
+  else if(k==='u'){undo();}
+  else if(k==='r'){reset();}
+  else if(k==='n'){newGame();}
+});
+document.getElementById('undoBtn').onclick=undo;
+document.getElementById('resetBtn').onclick=reset;
+document.getElementById('newBtn').onclick=newGame;
+document.getElementById('difficulty').onchange=()=>{newGame();};
+document.getElementById('level').onchange=(e)=>{setLevel(parseInt(e.target.value,10)); newGame();};
+document.getElementById('rankBtn').onclick=()=>{renderRanking();};
+document.getElementById('helpBtn').onclick=()=>show('helpOverlay');
+document.getElementById('helpClose').onclick=()=>hide('helpOverlay');
+document.getElementById('saveScore').onclick=doSaveScore;
+document.getElementById('winNew').onclick=()=>{hide('winOverlay');newGame();};
+document.getElementById('winNext').onclick=()=>{hide('winOverlay'); setLevel(levelIndex+1); newGame();};
+document.getElementById('playerName').addEventListener('keydown',e=>{if(e.key==='Enter')doSaveScore();});
+window.addEventListener('resize',resizeCanvas);
+
+// ---- 부팅 ----
+function populateLevels(){
+  const sel=document.getElementById('level'); sel.innerHTML='';
+  LEVELS.forEach((L,i)=>{ const o=document.createElement('option');
+    o.value=String(i); o.textContent=`${L.name} (방 ${L.rooms.length})`; sel.appendChild(o); });
+}
+populateLevels();
+setLevel(0);
+newGame();
+if(!localStorage.getItem('cc_sokoban_seen')){show('helpOverlay');localStorage.setItem('cc_sokoban_seen','1');}
+</script>
+</body>
+</html>

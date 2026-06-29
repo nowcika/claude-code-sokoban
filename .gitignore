@@ -1,0 +1,7 @@
+# Claude Code 로컬 설정 (개인용, 공유 안 함)
+.claude/
+.playwright-mcp/
+
+# OS / 에디터
+.DS_Store
+*.swp
