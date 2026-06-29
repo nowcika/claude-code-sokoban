@@ -4,7 +4,11 @@
 
 설치·빌드 없이 `index.html` 하나로 동작합니다.
 
+### ▶️ 지금 바로 플레이: **https://nowcika.github.io/claude-code-sokoban/**
+
 ## 🎮 플레이
+
+브라우저에서 위 링크로 바로 즐기거나, 로컬에서 실행할 수 있습니다.
 
 ```bash
 # 저장소 클론 후
