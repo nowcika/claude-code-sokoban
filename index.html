@@ -419,13 +419,23 @@ function draw(){
   // 바닥/벽
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     const px=x*CELL, py=y*CELL;
-    if(grid[y][x]==='wall'){ ctx.fillStyle='#10141c'; ctx.fillRect(px,py,CELL,CELL);
-      ctx.fillStyle='#161c28'; ctx.fillRect(px+1,py+1,CELL-2,CELL-2);
+    if(grid[y][x]==='wall'){
+      // 벽/기둥: 어두운 줄눈 위에 밝은 입체 블록(베벨)
+      ctx.fillStyle='#0a0d13'; ctx.fillRect(px,py,CELL,CELL);
+      ctx.fillStyle='#3b4459'; ctx.fillRect(px+1,py+1,CELL-2,CELL-2);
+      ctx.fillStyle='#515d78'; // 위/왼쪽 하이라이트
+      ctx.fillRect(px+1,py+1,CELL-2,Math.max(2,CELL*0.09));
+      ctx.fillRect(px+1,py+1,Math.max(2,CELL*0.09),CELL-2);
+      ctx.fillStyle='#252c3c'; // 아래/오른쪽 그림자
+      ctx.fillRect(px+1,py+CELL-1-Math.max(2,CELL*0.09),CELL-2,Math.max(2,CELL*0.09));
+      ctx.fillRect(px+CELL-1-Math.max(2,CELL*0.09),py+1,Math.max(2,CELL*0.09),CELL-2);
     }else{
       const ri=roomCells[y][x];
       const col = ri>=0?ROOMS[ri].color:'#888';
-      ctx.fillStyle='#0c1017'; ctx.fillRect(px,py,CELL,CELL);
-      ctx.fillStyle=hexA(col,0.07); ctx.fillRect(px,py,CELL,CELL);
+      ctx.fillStyle='#0f141d'; ctx.fillRect(px,py,CELL,CELL);
+      ctx.fillStyle=hexA(col,0.10); ctx.fillRect(px,py,CELL,CELL);
+      ctx.strokeStyle='rgba(255,255,255,0.045)'; ctx.lineWidth=1; // 옅은 바닥 격자
+      ctx.strokeRect(px+0.5,py+0.5,CELL-1,CELL-1);
     }
   }
   // 방 라벨 (각 방 상단)
