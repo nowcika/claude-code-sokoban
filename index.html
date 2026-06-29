@@ -285,6 +285,27 @@ const LEVELS = [
     { gc:3,gr:2, file:".gitignore", short:".gitignore", color:"#7dcfff", desc:"버전관리 제외 항목", items:[
       {id:"ign",emoji:"🚫",name:"무시 규칙",info:"커밋에서 제외할 파일 패턴"} ]},
   ]},
+  { name:"L4 · 스코프 & 상속", rc:4, rr:2, rooms:[
+    { gc:0,gr:0, scope:"global", file:"~/.claude/settings.json", short:"~ settings", color:"#7aa2f7", desc:"전역 설정 — 모든 프로젝트 기본값", items:[
+      {id:"gmodel",emoji:"🧠",name:"전역 모델",info:"모든 프로젝트 공통 기본 모델 → 전역(🌐)에"},
+      {id:"genv",emoji:"🌱",name:"전역 환경변수",info:"어디서나 쓰는 환경변수 → 전역(🌐)에"} ]},
+    { gc:1,gr:0, scope:"project", file:".claude/settings.json", short:"settings.json", color:"#e0af68", desc:"프로젝트 공유 설정 — 팀과 커밋", items:[
+      {id:"phook",emoji:"🪝",name:"공유 훅",info:"팀이 함께 쓰는 훅 → 프로젝트 공유(📁)에"},
+      {id:"pperm",emoji:"🔐",name:"공유 권한",info:"팀 공통 권한 규칙 → 프로젝트 공유(📁)에"} ]},
+    { gc:2,gr:0, scope:"local", file:".claude/settings.local.json", short:"settings.local", color:"#f7768e", desc:"개인 로컬 설정 — gitignore, 나만", items:[
+      {id:"lperm",emoji:"🔒",name:"개인 권한",info:"나만의 권한 예외 → 개인 로컬(👤)에"},
+      {id:"lkey",emoji:"🗝️",name:"개인 API 키",info:"공유하면 안 되는 키 → 개인 로컬(👤)에"} ]},
+    { gc:3,gr:0, scope:"managed", file:"managed-settings.json", short:"managed", color:"#3fb950", desc:"관리자 정책 — 조직 강제, 최우선", items:[
+      {id:"mpolicy",emoji:"🏛️",name:"관리자 정책",info:"조직이 강제하는 설정 → 관리자(🏢), 못 덮음"} ]},
+    { gc:0,gr:1, scope:"global", file:"~/.claude/CLAUDE.md", short:"~ CLAUDE.md", color:"#bb9af7", desc:"전역 메모리 — 개인 공통 지침", items:[
+      {id:"gmem",emoji:"📋",name:"전역 지침",info:"모든 프로젝트에 적용할 개인 지침 → 전역(🌐) 메모리"} ]},
+    { gc:1,gr:1, scope:"project", file:"./CLAUDE.md", short:"CLAUDE.md", color:"#73daca", desc:"프로젝트 메모리 — 팀 공유", items:[
+      {id:"pmem",emoji:"📌",name:"프로젝트 규칙",info:"이 프로젝트 규칙 → 프로젝트(📁) 메모리"} ]},
+    { gc:2,gr:1, scope:"global", file:"~/.claude/commands/", short:"~ commands/", color:"#ff9e64", desc:"전역 슬래시 명령 — 모든 프로젝트", items:[
+      {id:"gcmd",emoji:"⚡",name:"전역 명령",info:"어디서나 쓰는 /명령 → 전역(🌐) commands"} ]},
+    { gc:3,gr:1, scope:"project", file:".claude/commands/", short:"commands/", color:"#7dcfff", desc:"프로젝트 슬래시 명령 — 이 저장소", items:[
+      {id:"pcmd",emoji:"⌨️",name:"프로젝트 명령",info:"이 프로젝트용 /명령 → 프로젝트(📁) commands"} ]},
+  ]},
 ];
 
 // ---- 현재 레벨 상태 ----
@@ -467,13 +488,24 @@ function draw(){
       ctx.strokeRect(px+0.5,py+0.5,CELL-1,CELL-1);
     }
   }
-  // 방 라벨 (각 방 상단)
-  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  // 방 라벨 + 스코프(적용 범위) 표시: 같은 범위끼리 같은 색 테두리 + 이모지
   ROOMS.forEach(r=>{
     const o=roomOrigin(r.gc,r.gr);
-    ctx.fillStyle=hexA(r.color,0.9);
+    const sc=scopeOf(r);
+    // 스코프 색 테두리(방 내부 가장자리)
+    ctx.strokeStyle=hexA(sc.color,0.85); ctx.lineWidth=2;
+    ctx.strokeRect(o.x*CELL+1.5, o.y*CELL+1.5, IW*CELL-3, IH*CELL-3);
+    // 파일명 라벨(스코프 이모지 + 짧은 이름)
+    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    ctx.fillStyle=hexA(r.color,0.95);
     ctx.font=`600 ${Math.max(9,CELL*0.30)}px ui-monospace,Menlo,monospace`;
-    ctx.fillText(r.short||r.file, o.x*CELL+3, o.y*CELL-3 + (o.y>0? 0: CELL*0.5));
+    ctx.fillText(`${sc.emoji} ${r.short||r.file}`, o.x*CELL+3, o.y*CELL-3);
+    // 스코프 라벨(전역/프로젝트/개인/관리자) 우측 상단
+    ctx.textAlign='right';
+    ctx.fillStyle=hexA(sc.color,0.95);
+    ctx.font=`600 ${Math.max(8,CELL*0.26)}px -apple-system,sans-serif`;
+    ctx.fillText(sc.label, (o.x+IW)*CELL-3, o.y*CELL-3);
+    ctx.textAlign='left';
   });
   // 목표 칸
   ctx.lineWidth=2;
@@ -509,20 +541,33 @@ function draw(){
 function hexA(hex,a){const h=hex.replace('#','');const r=parseInt(h.substring(0,2),16),
   g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);return `rgba(${r},${g},${b},${a})`;}
 
-// ---- 레전드(교육 패널) ----
-// 파일 경로로 적용 범위(스코프) 추론: 전역 / 개인(로컬) / 프로젝트
-function scopeBadge(file){
-  if(file.startsWith('~/')) return '🌐 전역';
-  if(file.includes('.local.')) return '👤 개인';
-  return '📁 프로젝트';
+// ---- 스코프(적용 범위) 정의 ----
+const SCOPE_META={
+  global:{label:"전역",color:"#7aa2f7",emoji:"🌐"},
+  project:{label:"프로젝트",color:"#e0af68",emoji:"📁"},
+  local:{label:"개인",color:"#f7768e",emoji:"👤"},
+  managed:{label:"관리자",color:"#3fb950",emoji:"🏢"},
+};
+// 방의 스코프: room.scope 우선, 없으면 파일 경로로 추론
+function scopeKey(r){
+  if(r.scope) return r.scope;
+  if(r.file.startsWith('~/')) return 'global';
+  if(r.file.includes('.local.')) return 'local';
+  if(r.file.includes('managed')) return 'managed';
+  return 'project';
 }
+function scopeOf(r){return SCOPE_META[scopeKey(r)];}
+function scopeBadge(r){const s=scopeOf(r); return s.emoji+' '+s.label;}
+
+// ---- 레전드(교육 패널) ----
 function buildLegend(){
   const el=document.getElementById('legend'); el.innerHTML='';
   ROOMS.forEach(r=>{
     const div=document.createElement('div'); div.className='room';
+    const sc=scopeOf(r);
     div.style.borderColor=hexA(r.color,0.5);
     const chips=r.items.map(it=>`<span class="chip" title="${it.info}">${it.emoji} ${it.name}</span>`).join('');
-    div.innerHTML=`<div class="name" style="color:${r.color}">${r.file}<span class="scope" title="적용 범위">${scopeBadge(r.file)}</span></div>
+    div.innerHTML=`<div class="name" style="color:${r.color}">${r.file}<span class="scope" title="적용 범위" style="color:${sc.color};border-color:${hexA(sc.color,0.5)}">${scopeBadge(r)}</span></div>
       <div class="desc">${r.desc}</div><div class="items">${chips}</div>`;
     el.appendChild(div);
   });
