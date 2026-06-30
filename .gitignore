@@ -2,6 +2,11 @@
 .claude/
 .playwright-mcp/
 
+# Node / Playwright
+node_modules/
+playwright-report/
+test-results/
+
 # OS / 에디터
 .DS_Store
 *.swp
